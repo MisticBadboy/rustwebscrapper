@@ -4,9 +4,9 @@ use request::Request;
 
 #[tokio::main]
 async fn main() -> Result<(),reqwest::Error>{
-    let resp = Request{url : String::from("https://csgostash.com/containers/skin-cases")}
-    .get_PageContent()
-    .await?;
-    println!("text : {:?}", resp);
+    let mut resp = Request::new(String::from("https://csgostash.com/containers/skin-cases"));
+    let _page_content: String = resp.get_PageContent().await?;
+    let scraped = resp.scrape_html();
+    // println!("text : {:#?}", scraped);
     Ok(())
 }
