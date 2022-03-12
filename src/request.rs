@@ -1,4 +1,5 @@
 use std::result::Result;
+use scraper::{Html,Selector};
 
 pub struct Request{
     pub url : String
@@ -12,6 +13,10 @@ impl Request{
         .text_with_charset("utf-8")
         .await?;
         Ok(resp)
+    }
+
+    pub async fn scape_html(&self) -> String{
+        String::from("GG")
     }
     
 }
