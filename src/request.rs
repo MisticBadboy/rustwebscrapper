@@ -1,43 +1,71 @@
-pub(crate) use scraper::{Html, Selector};
+use std::collections::HashMap;
 
-pub struct Request {
-    pub s_url: String,
-        f_content: String
+use reqwest::Response;
+use scraper::{Html, Selector};
+
+pub struct Scraping {
+    pub mainpage : String,
 }
 
-impl Request {
-    #[allow(non_snake_case)]
-    pub async fn get_PageContent( & mut self) -> Result<String, reqwest::Error>{
-        let resp = reqwest::get( & self.s_url)
-            .await ?
-            .text_with_charset("utf-8")
-            .await ? ;
-        self.f_content = resp;
-        Ok(String::from("Success"))
+impl Scraping {
+    async fn scrape(_site : &String) -> Result<Response,reqwest::Error> {
+        let resp = reqwest::get(_site).await?;
+        Ok(resp)
     }
-    pub fn new(s_url: String) -> Self {
-        Self {
-            s_url,
-            f_content: String::from("")
-        }
+    
+    async fn get_page(page : &String) -> Result<HashMap<&str,Vec<&str>>,reqwest::Error> {
+        let resp = Scraping::scrape(&page).await?.text().await.unwrap();
+        let html_d = Html::parse_document(resp.as_str());
+        let mut items = HashMap::new();
+        let mut price  = Vec::new();
+        let mut item = Vec::new();
+        let mut ext  = Vec::new();
+        let frag = html_d.select(&Selector::parse(".col-lg-4.col-md-6.col-widen.text-center").unwrap()).next();
+        for element in frag{
+            let res = match element.select(&Selector::parse("a").unwrap()).next(){
+                Some(o) => o,
+                None => continue
+            };
+            let _case = element.text().collect::<Vec<_>>();
+            let _link = match res.value().attr("href"){
+                Some(x) => x,
+                None => continue
+            };
+            ext.push(_link);
+            item.push(_case[3]);
+            price.push(_case[7]);
+        }  
+        items.insert("links", ext);
+        items.insert("items", item);
+        items.insert("prices", price);
+        Ok(items)     
     }
-    #[warn(dead_code)]
-    pub fn scrape_html(&self) -> Result<Vec<String>,&str>{
-        let mut vec:Vec<String> = Vec::new();
-        let fragment = Html::parse_document(&self.f_content);
-        let selector = Selector::parse("div.col-lg-4.col-md-6.col-widen.text-center").unwrap();
-        for element in fragment.select(&selector) {
-            let selector2 = Selector::parse("div.well.result-box.nomargin > a").unwrap();
-            let element2 = element.select(&selector2).next();
-            match element2 {
-                None => continue,
-                Some(_t) =>{
-                    let idk:String = element2.unwrap().html();
-                    vec.push(idk);  
-                    println!("{:#?}",element2.unwrap().value().attr("href"))
-                }
-            }
-        };
-        Ok(vec)
+
+    pub async fn start(&self) -> Result<bool,reqwest::Error>{
+        let resp = Scraping::scrape(&self.mainpage).await?.text().await.unwrap();
+        let fragment = Html::parse_document(resp.as_str());
+        let mut items = HashMap::new();
+        let mut price  = Vec::new();
+        let mut item = Vec::new();
+        let mut ext  = Vec::new();
+        for element in fragment.select(&Selector::parse(".col-lg-4.col-md-6.col-widen.text-center").unwrap()){
+            let res = match element.select(&Selector::parse("a").unwrap()).next(){
+                Some(o) => o,
+                None => continue
+            };
+            let _case = element.text().collect::<Vec<_>>();
+            let _link = match res.value().attr("href"){
+                Some(x) => x,
+                None => continue
+            };
+            ext.push(_link);
+            item.push(_case[3]);
+            price.push(_case[7]);
+        }  
+        items.insert("links", ext);
+        items.insert("items", item);
+        items.insert("prices", price);
+        println!("{:?}",&items); 
+        Ok(true)
     }
 }
