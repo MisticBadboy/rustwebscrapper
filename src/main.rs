@@ -7,12 +7,15 @@ use reqwest;
 use structs::{CaseElement, Items};
 use tokio::{self, task::JoinError};
 mod structs;
+mod db;
 
 #[tokio::main]
 async fn main() {
     if let Err(_) = run().await {
         println!("An error occurred.");
     }
+    db::init();
+    db::push_data(Vec::new()).await;
 }
 
 lazy_static!
