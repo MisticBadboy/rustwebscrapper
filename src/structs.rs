@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::MutexGuard};
+use std::{fmt::Debug, ops};
 
 #[derive(Debug, Clone)]
 pub enum Rarity {
@@ -48,7 +48,6 @@ unsafe impl Send for CaseElement {}
 unsafe impl Send for Items {}
 unsafe impl Send for Rarity {}
 
-
 impl CaseElement {
     pub fn new(url: Option<String>, image: Option<String>, name: Option<String>, price: Option<String>) -> Self {
         Self {
@@ -60,15 +59,33 @@ impl CaseElement {
             knifes : None
         }
     }
+
+    #[allow(dead_code)]
+    pub fn print_case_elements(case_elements: Vec<CaseElement>) {
+        for i in case_elements {
+            println!("{:#?}", i);
+        }
+    }
+}
+
+impl ops::Add for CaseElement {
+    type Output = CaseElement;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut temp = CaseElement::new(self.url, self.image, self.name, self.price);
+        temp.knifes = Some(Box::new(rhs));
+        temp.items = self.items;
+        return temp;
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Items {
-    name: Option<String>,
-    rarity: Option<Rarity>,
-    nonstatprice: Option<String>,
-    statprice: Option<String>,
-    image: Option<String>,
+    pub name: Option<String>,
+    pub rarity: Option<Rarity>,
+    pub nonstatprice: Option<String>,
+    pub statprice: Option<String>,
+    pub image: Option<String>,
 }
 
 impl Items {
@@ -79,13 +96,12 @@ impl Items {
         statprice: Option<String>,
         image: Option<String>,
     ) -> Self {
-        let item = Self {
+        Self {
             name,
             rarity,
             nonstatprice,
             statprice,
             image
-        };
-        item
+        }
     }
 }

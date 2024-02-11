@@ -1,17 +1,23 @@
-use std::{vec, error::Error, thread::JoinHandle, ops::{Deref, Add, Index}, future::{Future, self}, os::windows::thread, borrow::Borrow, sync::{Arc, RwLock, Mutex}, rc::Rc, clone};
-
+use std::{env, fs};
+use std::io::Write;
+use chrono::{DateTime, Local};
+use lazy_static::lazy_static;
 use reqwest;
-use scraper::{element_ref::Select, ElementRef};
+
 use structs::{CaseElement, Items};
-use tokio::{self};
+use tokio::{self, task::JoinError};
 mod structs;
 
 #[tokio::main]
 async fn main() {
     if let Err(_) = run().await {
-        // Handle the error here
         println!("An error occurred.");
     }
+}
+
+lazy_static!
+{
+    static ref EXEC_TIME : std::sync::RwLock<Vec<DateTime<Local>>> = std::sync::RwLock::new(Vec::new());
 }
 
 async fn run() -> Result<(), reqwest::Error> {
@@ -20,8 +26,8 @@ async fn run() -> Result<(), reqwest::Error> {
     let scraper_doc = scraper::Html::parse_document(&body);
     let selector = scraper::Selector::parse("body > div.container.main-content > div:nth-child(7) > div").unwrap();
     let html_products = scraper_doc.select(&selector);
-    let mut CaseElements : Vec<structs::CaseElement> = Vec::new();
-    for (index, element) in html_products.enumerate()
+    let mut case_elements : Vec<structs::CaseElement> = Vec::new();
+    for element in html_products
     {
         let url = element
         .select(&scraper::Selector::parse("a").unwrap())
@@ -50,90 +56,130 @@ async fn run() -> Result<(), reqwest::Error> {
             continue;
         }
 
-        CaseElements.push(CaseElement::new(url, image, name, price));
+        case_elements.push(CaseElement::new(url, image, name, price));
     }
 
-    start_case_parser(&mut CaseElements).await?;
+    case_elements = start_case_parser(case_elements, false).await.unwrap();
 
-    let mut CaseKnifeElements : Vec<CaseElement> = Vec::new();
+    let mut case_knife_elements : Vec<CaseElement> = case_elements.clone().into_iter().map(|x| x.knifes).filter_map(|x| match x{
+        Some(x) => Some(*x),
+        None => None
 
-    // for case in CaseElements
-    // {
-    //     CaseKnifeElements.push(case.knifes)
-    // }
+    }).collect();
+
+    case_knife_elements = start_case_parser(case_knife_elements, true).await.unwrap();
+
+    let mut case_elements_with_knifes = Vec::new();
+    for i in case_elements.clone().into_iter().enumerate()
+    {
+        case_elements_with_knifes.push(case_elements[i.0].clone() + case_knife_elements[i.0].clone());
+    }
 
     Ok(())
 }
 
-async fn start_case_parser<'a>(CaseElements: &'a mut Vec<CaseElement>) -> Result<(), reqwest::Error> {
+async fn start_case_parser(case_elements: Vec<CaseElement>, knife: bool) -> Result<Vec<CaseElement>, JoinError> {
     let mut threads = Vec::new();
-
-    let arc_elements: Arc<futures::lock::Mutex<Vec<CaseElement>>> = Arc::new(futures::lock::Mutex::new(CaseElements.clone()));
-
-    // for (index, element) in CaseElements.iter().enumerate()
-    // {
-    //     let arc_elements_clone = Arc::clone(&arc_elements.);
-    //     let spawned = tokio::spawn(async move {
-    //         CaseParser(index, arc_elements, false).await.unwrap()
-    //     }).await;
-    //     threads.push(spawned);
-    // }
-
-    threads = CaseElements.into_iter().enumerate()
-    .map(|f| {
-        let index = f.0;
-        let mut arc_elements_clone = Arc::clone(&arc_elements);
-        tokio::spawn(async move {
-            CaseParser(index,arc_elements_clone, false).await
+    let mut return_case_elements = Vec::new();
+    for (index, item) in case_elements.into_iter().enumerate() {
+        println!("Thread {index} started!");
+        EXEC_TIME.write().unwrap().push(Local::now());
+        let handle = tokio::spawn(async move {
+            case_parser(index, item, knife).await
         });
-    })
-    .collect();
+        threads.push(handle);
+    }
+    let mut count = 0; 
+    let mut missed_items = String::new();
+    for (index, handle) in threads.into_iter().enumerate() 
+    {
+        return_case_elements.push(handle.await?.unwrap());
+        if return_case_elements[index].clone().items.unwrap().len() == 0
+        {
+            count += 1;
+            let mut formatted_string = Vec::new();
+            write!(&mut formatted_string, "{:#?}", return_case_elements).expect("Failed to format");
+            missed_items.push_str(std::str::from_utf8(&formatted_string).unwrap());
+        }
+    }
+    if let Err(e) = fs::create_dir_all("./log") {
+        panic!("Failed to create directory: {}", e);
+    }
 
-    Ok(())
+    let exe_path = match env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            panic!("Failed to get current executable path: {}", e);
+        }
+    };
+
+    // Get the directory of the executable
+    let exe_dir = match exe_path.parent() {
+        Some(dir) => dir,
+        None => {
+            panic!("Failed to get parent directory of executable");
+        }
+    };
+
+    // Create the log directory if it doesn't exist in the same directory as the executable
+    let log_dir = exe_dir.join("log");
+    if let Err(e) = fs::create_dir_all(&log_dir) {
+        panic!("Failed to create log directory: {}", e);
+    }
+
+    // Open or create the file for appending in the log directory
+    let log_file = log_dir.join("cases.txt");
+    let mut file = match fs::OpenOptions::new().append(true).create(true).open(&log_file) {
+        Ok(file) => file,
+        Err(e) => {
+            panic!("Failed to open or create log file: {}", e);
+        }
+    };
+
+    file.write_all(missed_items.as_bytes()).unwrap();
+    println!("Items/Knifes missed : {count}");
+    Ok(return_case_elements)
 }
 
-async fn CaseParser<'b>(index : usize, collection : Arc<futures::lock::Mutex<Vec<CaseElement>>>, knife : bool) ->Result<(), reqwest::Error>
-{
-    let res = reqwest::get(collection.lock().await[index].url.clone().unwrap().as_str()).await?;
+async fn case_parser(index: usize, mut collection: CaseElement, knife: bool) -> Result<CaseElement, reqwest::Error> {
+    let res = reqwest::get(collection.url.take().unwrap()).await?;
     let body = res.text().await?;
     let scraper_doc = scraper::Html::parse_document(&body);
     let selector = scraper::Selector::parse("body > div.container.main-content > div:nth-child(7) > div").unwrap();
     let html_products = scraper_doc.select(&selector);
     let url = scraper_doc.select(&scraper::Selector::parse("body > div.container.main-content > div:nth-child(7) > div:nth-child(1) > div > h3 > a").unwrap())
-    .next()
-    .and_then(|x| x.value().attr("href"))
-    .map(str::to_owned);
-    if index == 0 && !knife
-    {
-        collection.lock().await[index].knifes = Some(Box::new(CaseElement::new(url, Some(String::new()), Some(String::new()),Some(String::new()))));
+        .next()
+        .and_then(|x| x.value().attr("href"))
+        .map(str::to_owned);
+
+    if !knife {
+        collection.knifes = Some(Box::new(CaseElement::new(url, Some(String::new()), Some(String::new()), Some(String::new()))));
     }
-    for (index, element) in html_products.enumerate()
-    {
+
+    for element in html_products {
         let aselector = &scraper::Selector::parse("div > h3 > a").unwrap();
-        let mut name : Option<String> = Some("".to_string());
-        let mut name_header = element
-        .select(aselector);
-        for (index, i) in name_header .enumerate()
-        {
+        let mut name: Option<String> = Some("".to_string());
+        let name_header = element.select(aselector);
+        for i in name_header {
             name = Some(name.unwrap() + &i.text().collect::<String>() + " ");
         }
-        let rarity : Option<structs::Rarity> = Some(
+        let rarity: Option<structs::Rarity> = Some(
             structs::Rarity::convert(element.select(&scraper::Selector::parse("div > a:nth-child(2) > div > p").unwrap())
+                .next()
+                .map(|x| x.text().collect::<String>())));
+        let nonstatprice: Option<String> = element.select(&scraper::Selector::parse("div > div:nth-child(5) > p > a").unwrap())
             .next()
-            .map(|x| x.text().collect::<String>())));
-        let nonstatprice : Option<String> = element.select(&scraper::Selector::parse("div > div:nth-child(5) > p > a").unwrap())
-        .next()
-        .map(|x| x.text().collect::<String>());
-        let statprice : Option<String> = element.select(&scraper::Selector::parse("div > div:nth-child(6) > p > a").unwrap())
-        .next()
-        .map(|x| x.text().collect::<String>()); 
-        let image : Option<String> = element.select(&scraper::Selector::parse("div > a:nth-child(4) > img").unwrap())
-        .next()
-        .and_then(|x| x.value().attr("src"))
-        .map(str::to_owned);
-        let mut knifes : Option<CaseElement> = None;
-        collection.lock().await[index].items.as_mut().unwrap().push(Items::new(name, rarity, nonstatprice, statprice, image));
+            .map(|x| x.text().collect::<String>());
+        let statprice: Option<String> = element.select(&scraper::Selector::parse("div > div:nth-child(6) > p > a").unwrap())
+            .next()
+            .map(|x| x.text().collect::<String>());
+        let image: Option<String> = element.select(&scraper::Selector::parse("div > a:nth-child(4) > img").unwrap())
+            .next()
+            .and_then(|x| x.value().attr("src"))
+            .map(str::to_owned);
+        collection.items.as_mut().unwrap().push(Items::new(name, rarity, nonstatprice, statprice, image));
     }
     println!("Thread {:#?} has finished", index);
-    Ok(())
+    println!("Thread {index} took : {:#?} secs", (Local::now() - EXEC_TIME.read().unwrap()[index]).num_seconds());
+    Ok(collection)
 }
