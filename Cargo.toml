@@ -13,4 +13,8 @@ futures = "0.3.30"
 chrono = "0.4"
 lazy_static = "1.4"
 toml = "0.8.10"
-mongodb = "2.8.1"
+serde = "1.0.196"
+
+[dependencies.mongodb]
+version = "2.8.1"
+features = ["snappy-compression"]

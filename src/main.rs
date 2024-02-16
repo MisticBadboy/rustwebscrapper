@@ -11,11 +11,13 @@ mod db;
 
 #[tokio::main]
 async fn main() {
+    let _ = match db::init().await {
+        Some(s) => s,
+        None => panic!("Something went wrong!!!")
+    };
     if let Err(_) = run().await {
         println!("An error occurred.");
     }
-    db::init();
-    db::push_data(Vec::new()).await;
 }
 
 lazy_static!
@@ -77,7 +79,8 @@ async fn run() -> Result<(), reqwest::Error> {
     {
         case_elements_with_knifes.push(case_elements[i.0].clone() + case_knife_elements[i.0].clone());
     }
-
+    println!("Attempting to push!");
+    db::push_data(case_elements_with_knifes).await;
     Ok(())
 }
 
@@ -180,7 +183,11 @@ async fn case_parser(index: usize, mut collection: CaseElement, knife: bool) -> 
             .next()
             .and_then(|x| x.value().attr("src"))
             .map(str::to_owned);
-        collection.items.as_mut().unwrap().push(Items::new(name, rarity, nonstatprice, statprice, image));
+        let url = element.select(&scraper::Selector::parse("body > div.container.main-content > div:nth-child(7) > div > div > a:nth-child(4)").unwrap())
+        .next()
+        .and_then(|x| x.value().attr("href"))
+        .map(str::to_owned);
+        collection.items.as_mut().unwrap().push(Items::new(name, rarity, nonstatprice, statprice, image, url));
     }
     println!("Thread {:#?} has finished", index);
     println!("Thread {index} took : {:#?} secs", (Local::now() - EXEC_TIME.read().unwrap()[index]).num_seconds());

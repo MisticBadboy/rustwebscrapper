@@ -1,4 +1,6 @@
 use std::{fmt::Debug, ops};
+use mongodb::bson::{doc, Bson};
+use serde::{ Deserialize, Serialize };
 
 #[derive(Debug, Clone)]
 pub enum Rarity {
@@ -48,6 +50,25 @@ unsafe impl Send for CaseElement {}
 unsafe impl Send for Items {}
 unsafe impl Send for Rarity {}
 
+impl Into<Bson> for CaseElement {
+    fn into(self) -> Bson {
+        let mut doc = doc! {};
+        if let Some(url) = self.url {
+            doc.insert("url", url);
+        }
+        if let Some(image) = self.image {
+            doc.insert("image", image);
+        }
+        if let Some(name) = self.name {
+            doc.insert("name", name);
+        }
+        if let Some(price) = self.price {
+            doc.insert("price", price);
+        }
+        Bson::Document(doc)
+    }
+}
+
 impl CaseElement {
     pub fn new(url: Option<String>, image: Option<String>, name: Option<String>, price: Option<String>) -> Self {
         Self {
@@ -86,6 +107,29 @@ pub struct Items {
     pub nonstatprice: Option<String>,
     pub statprice: Option<String>,
     pub image: Option<String>,
+    pub url : Option<String>
+}
+
+impl Into<Bson> for Items {
+    fn into(self) -> Bson {
+        let mut doc = doc! {};
+        if let Some(url) = self.url {
+            doc.insert("url", url);
+        }
+        if let Some(image) = self.image {
+            doc.insert("image", image);
+        }
+        if let Some(name) = self.name {
+            doc.insert("name", name);
+        }
+        if let Some(price) = self.statprice {
+            doc.insert("statprice", price);
+        }
+        if let Some(price) = self.nonstatprice {
+            doc.insert("nonstatprice", price);
+        }
+        Bson::Document(doc)
+    }
 }
 
 impl Items {
@@ -95,13 +139,15 @@ impl Items {
         nonstatprice: Option<String>,
         statprice: Option<String>,
         image: Option<String>,
+        url : Option<String>
     ) -> Self {
         Self {
             name,
             rarity,
             nonstatprice,
             statprice,
-            image
+            image,
+            url
         }
     }
 }
